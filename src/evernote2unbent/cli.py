@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import click
+from evernote_backup import config_defaults as defaults
 
 from evernote2unbent.client import (
     UnbentClient,
@@ -106,6 +107,51 @@ def _login(url: str) -> str:
     return token
 
 
+def _run_upload(
+    database: Path,
+    target: str,
+    include_trash: bool,
+    notebooks: tuple[str, ...],
+    tags: tuple[str, ...],
+) -> None:
+    """The upload half, shared so `migrate` and `upload` cannot report it differently."""
+    from evernote_backup.note_storage import SqliteStorage
+
+    token = _ensure_token(target)
+
+    uploader = NoteUploader(
+        storage=SqliteStorage(database),
+        client=UnbentClient(target, token),
+        include_trash=include_trash,
+        filter_notebooks=notebooks,
+        filter_tags=tags,
+    )
+
+    try:
+        stats = uploader.upload_notebooks()
+    except UnbentAuthError:
+        # The token was accepted at startup but refused mid-run, so it expired or was
+        # revoked. Saying so beats a bare 401 at the end of a long upload.
+        raise Evernote2UnbentError(
+            "Unbent refused the session. Run `evernote2unbent login` and try again."
+        ) from None
+
+    click.echo(
+        f"\n{stats.created} imported, {stats.skipped} already present, "
+        f"{stats.files} files"
+        + (f", {stats.failed} failed" if stats.failed else "")
+        + "."
+    )
+
+    if stats.failures:
+        click.echo("\nSome notes failed:")
+        for title, reason in stats.failures:
+            click.echo(f"  {title} — {reason}")
+        if stats.failed > len(stats.failures):
+            click.echo(f"  ...and {stats.failed - len(stats.failures)} more")
+        click.echo("\nRe-run the same command to retry just these.")
+
+
 def _ensure_token(url: str) -> str:
     token = read_token(url)
     if token:
@@ -169,6 +215,95 @@ def show_config() -> None:
 
 
 @cli.command()
+@click.option(
+    "--database",
+    "-d",
+    default=DEFAULT_DATABASE,
+    show_default=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Where to keep the local sync database.",
+)
+@opt_url
+@click.option(
+    "--include-trash", is_flag=True, help="Include notes from Evernote's trash."
+)
+@click.option(
+    "--notebook",
+    "-n",
+    "notebooks",
+    multiple=True,
+    help="Only upload this notebook. Repeatable. The sync still fetches everything.",
+)
+@click.option(
+    "--resync",
+    is_flag=True,
+    help="Start the local database over. Re-downloads every note.",
+)
+@handle_errors
+def migrate(
+    database: Path,
+    url: str | None,
+    include_trash: bool,
+    notebooks: tuple[str, ...],
+    resync: bool,
+) -> None:
+    """Sync from Evernote and upload to Unbent, in one command.
+
+    \b
+    Equivalent to running, by hand:
+      evernote-backup init-db
+      evernote-backup sync
+      evernote2unbent upload
+
+    Safe to re-run. The sync is incremental and the upload skips notes that
+    already landed, so an interrupted migration continues where it stopped.
+    """
+    from evernote_backup import cli_app as backup
+
+    # Resolved before anything slow happens: being asked which instance to use after a
+    # forty-minute sync, rather than before it, would be its own small betrayal.
+    target = _resolve_url(url)
+
+    if resync or not database.exists():
+        click.echo("Signing in to Evernote...")
+        backup.init_db(
+            database=database,
+            auth_user=None,
+            auth_password=None,
+            auth_oauth_port=defaults.OAUTH_LOCAL_PORT,
+            auth_oauth_host=defaults.OAUTH_HOST,
+            auth_token=None,
+            force=resync,
+            backend=defaults.BACKEND,
+            network_retry_count=defaults.NETWORK_ERROR_RETRY_COUNT,
+            use_system_ssl_ca=False,
+            custom_api_data=None,
+        )
+    else:
+        click.echo(f"Using the existing database at {database}.")
+
+    click.echo("\nSyncing from Evernote. This is the slow part; it is resumable.")
+    backup.sync(
+        database=database,
+        max_chunk_results=defaults.SYNC_CHUNK_MAX_RESULTS,
+        max_download_workers=defaults.SYNC_MAX_DOWNLOAD_WORKERS,
+        download_cache_memory_limit=defaults.SYNC_DOWNLOAD_CACHE_MEMORY_LIMIT,
+        network_retry_count=defaults.NETWORK_ERROR_RETRY_COUNT,
+        use_system_ssl_ca=False,
+        token=None,
+    )
+
+    click.echo("\nUploading to Unbent.")
+    _run_upload(
+        database=database,
+        target=target,
+        include_trash=include_trash,
+        notebooks=notebooks,
+        tags=(),
+    )
+
+
+@cli.command()
 @opt_database
 @opt_url
 @click.option(
@@ -192,47 +327,21 @@ def upload(
     notebooks: tuple[str, ...],
     tags: tuple[str, ...],
 ) -> None:
-    """Upload synced notes into Unbent.
+    """Upload already-synced notes into Unbent.
 
-    Re-running is safe: notes that already landed are skipped, so an interrupted
-    run is resumed by repeating the same command.
+    Use this when `evernote-backup sync` has already run. `migrate` does the
+    sync and this in one command.
+
+    Re-running is safe: notes that already landed are skipped, so an
+    interrupted run is resumed by repeating the same command.
     """
-    from evernote_backup.note_storage import SqliteStorage
-
-    target = _resolve_url(url)
-    token = _ensure_token(target)
-
-    uploader = NoteUploader(
-        storage=SqliteStorage(database),
-        client=UnbentClient(target, token),
+    _run_upload(
+        database=database,
+        target=_resolve_url(url),
         include_trash=include_trash,
-        filter_notebooks=notebooks,
-        filter_tags=tags,
+        notebooks=notebooks,
+        tags=tags,
     )
-
-    try:
-        stats = uploader.upload_notebooks()
-    except UnbentAuthError:
-        # The token was accepted at startup but refused mid-run, which means it expired or
-        # was revoked. Saying so beats a bare 401 at the end of a long upload.
-        raise Evernote2UnbentError(
-            "Unbent refused the session. Run `evernote2unbent login` and try again."
-        ) from None
-
-    click.echo(
-        f"\n{stats.created} imported, {stats.skipped} already present, "
-        f"{stats.files} files"
-        + (f", {stats.failed} failed" if stats.failed else "")
-        + "."
-    )
-
-    if stats.failures:
-        click.echo("\nSome notes failed:")
-        for title, reason in stats.failures:
-            click.echo(f"  {title} — {reason}")
-        if stats.failed > len(stats.failures):
-            click.echo(f"  ...and {stats.failed - len(stats.failures)} more")
-        click.echo("\nRe-run the same command to retry just these.")
 
 
 def main() -> None:

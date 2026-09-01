@@ -23,25 +23,33 @@ pipx install evernote2unbent
 
 ## Use
 
-Sync your Evernote account first. This writes `en_backup.db` in the current directory and
-is resumable — an interrupted sync continues rather than restarting:
+```bash
+evernote2unbent migrate
+```
+
+That signs you in to Evernote, syncs your account to a local database, then uploads
+everything to Unbent. It asks which Unbent instance to use the first time and remembers
+the answer.
+
+**Start with one notebook** to see the result before moving everything. The sync still
+fetches your whole account — it is the upload that is scoped:
+
+```bash
+evernote2unbent migrate -n "Some Notebook"
+```
+
+Interrupted runs are safe to repeat: the sync is incremental, and notes that already
+landed are skipped rather than duplicated.
+
+### Doing the steps separately
+
+`migrate` runs [evernote-backup](https://github.com/vzhd1701/evernote-backup) for you. If
+you already use it, or want the ENEX files too, run the halves yourself:
 
 ```bash
 evernote-backup init-db
 evernote-backup sync
-```
-
-Then upload. The first command asks which Unbent instance to use and remembers it:
-
-```bash
-evernote2unbent login
 evernote2unbent upload
-```
-
-**Start with one notebook.** Check the result in Unbent before moving everything:
-
-```bash
-evernote2unbent upload -n "Some Notebook"
 ```
 
 ## Re-running is safe
