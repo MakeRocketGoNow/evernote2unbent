@@ -1,0 +1,10 @@
+# Local Evernote sync database — data, routinely gigabytes.
+en_backup.db
+*.db
+
+.venv/
+dist/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
