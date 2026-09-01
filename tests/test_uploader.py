@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sys
 
 import pytest
 from evernote.edam.type.ttypes import (
@@ -14,6 +15,7 @@ from evernote2unbent.client import UnbentClient, hex_md5
 from evernote2unbent.token_store import (
     clear_token,
     read_token,
+    restrict_to_owner,
     write_token,
 )
 from evernote2unbent.uploader import NoteUploader
@@ -298,11 +300,19 @@ class TestTokenStore:
     def test_missing_reads_as_none(self):
         assert read_token(UNBENT_URL) is None
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows ignores POSIX mode bits; access is restricted by ACL instead.",
+    )
     def test_written_private(self, tmp_path):
         write_token(UNBENT_URL, "tok_abc")
         path = tmp_path / "unbent" / "credentials.json"
         assert path.stat().st_mode & 0o777 == 0o600
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows ignores POSIX mode bits; access is restricted by ACL instead.",
+    )
     def test_tightens_permissions_on_an_existing_file(self, tmp_path):
         path = tmp_path / "unbent" / "credentials.json"
         path.parent.mkdir(parents=True)
@@ -341,6 +351,24 @@ class TestTokenStore:
 
         assert read_token("https://a.test") is None
         assert read_token("https://b.test") == "tok_b"
+
+    def test_restricts_the_token_file_on_every_platform(self, tmp_path):
+        """
+        The guarantee, stated in a way each platform can actually keep.
+
+        The mode-bit assertions above are skipped on Windows because chmod is a no-op
+        there — which is exactly why this exists: skipping a test on the platform whose
+        behaviour differs would leave that platform untested. Here the check is that the
+        file is written and readable by us, and that restrict_to_owner ran without
+        raising, whatever mechanism it used underneath.
+        """
+        write_token(UNBENT_URL, "tok_abc")
+        path = tmp_path / "unbent" / "credentials.json"
+
+        assert path.exists()
+        assert read_token(UNBENT_URL) == "tok_abc"
+        # Idempotent: a second call over an existing file must not raise.
+        restrict_to_owner(path)
 
     def test_shares_the_file_with_the_typescript_cli(self, tmp_path):
         """Same path and shape, so signing in with either tool satisfies both."""

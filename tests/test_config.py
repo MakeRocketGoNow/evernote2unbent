@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -68,6 +69,9 @@ class TestConfigStore:
             "https://notes.example.com"
         )
 
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Windows ignores POSIX mode bits."
+    )
     def test_written_editable(self):
         """0644, unlike credentials.json — this file is meant to be opened and edited."""
         write_url("https://notes.example.com")
