@@ -1,6 +1,6 @@
 [project]
 name = "evernote2unbent"
-version = "0.1.0"
+version = "0.1.1"
 description = "Move your Evernote notes into Unbent, without an ENEX file in between."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,9 +26,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cdeutsch/evernote2unbent"
+Homepage = "https://github.com/MakeRocketGoNow/evernote2unbent"
+Issues = "https://github.com/MakeRocketGoNow/evernote2unbent/issues"
 Unbent = "https://unbent.app"
-"evernote-backup" = "https://github.com/vzhd1701/evernote-backup"
+"Built on evernote-backup" = "https://github.com/vzhd1701/evernote-backup"
 
 [project.scripts]
 evernote2unbent = "evernote2unbent.cli:main"
