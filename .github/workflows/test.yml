@@ -24,3 +24,12 @@ jobs:
       - run: uv sync --group test --group dev
       - run: uv run ruff check src tests
       - run: uv run pytest tests/ -q
+
+  image:
+    # Builds the Docker image and runs it once, so a Dockerfile that no longer builds is
+    # found on the pull request and not on the release tag.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t evernote2unbent .
+      - run: docker run --rm evernote2unbent --version
