@@ -9,7 +9,22 @@ multi-gigabyte files you then have to feed somewhere. This syncs your account wi
 [evernote-backup](https://github.com/vzhd1701/evernote-backup) and uploads straight from
 its local database.
 
-## Install
+## Run it
+
+With [uv](https://docs.astral.sh/uv/getting-started/installation/) on the machine there is
+nothing to install:
+
+```bash
+uvx evernote2unbent migrate
+```
+
+`uvx` fetches the tool into a cache the first time and runs it; later runs start at once.
+That signs you in to Evernote, syncs your account to a local database, then uploads
+everything to Unbent. It asks which Unbent instance to use the first time and remembers
+the answer.
+
+To keep the command around under its own name, install it instead, and the rest of this
+page reads the same with `evernote2unbent` in place of `uvx evernote2unbent`:
 
 ```bash
 uv tool install evernote2unbent
@@ -21,15 +36,19 @@ Or with pipx:
 pipx install evernote2unbent
 ```
 
-## Use
+### With Docker
+
+For a machine with Docker and no Python:
 
 ```bash
-evernote2unbent migrate
+docker run --rm -it -v "$PWD":/data ghcr.io/makerocketgonow/evernote2unbent migrate
 ```
 
-That signs you in to Evernote, syncs your account to a local database, then uploads
-everything to Unbent. It asks which Unbent instance to use the first time and remembers
-the answer.
+The directory you run it from holds the sync database and, under `.config/unbent/`, the
+instance and the session the tool remembers, so running it again from the same directory
+continues where the last run stopped. The Evernote sign-in prints a link to open in a
+browser and asks for the address it lands on to be pasted back, which is why the
+container needs `-it`.
 
 **Start with one notebook** to see the result before moving everything. The sync still
 fetches your whole account — it is the upload that is scoped:
